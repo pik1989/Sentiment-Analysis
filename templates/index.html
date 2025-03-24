@@ -6,31 +6,105 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Text Sentiment Predictor</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        }
+
+        .input-glow:focus {
+            box-shadow: 0 0 15px rgba(79, 70, 229, 0.5);
+        }
+
+        .neon-text {
+            text-shadow: 0 0 10px #4f46e5, 0 0 20px #4f46e5, 0 0 30px #4f46e5;
+        }
+    </style>
 </head>
 
-<body>
-    <h1>Text Sentiment Prediction</h1>
+<body class="text-gray-100">
+    <div class="min-h-screen flex items-center justify-center p-6">
+        <div class="glass-card p-8 w-full max-w-3xl">
+            <h1
+                class="text-4xl font-bold text-center mb-8 bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                Text Sentiment Prediction
+            </h1>
 
-    <form id="predictionForm">
-        <input type="file" id="csvFileInput" accept=".csv">
-        <textarea id="textInput" placeholder="Enter text..."></textarea>
-        <button type="button" onclick="predict()">Predict</button>
-        <button id="downloadBtn" style="display:none" onclick="downloadPredictions()">Download Predictions</button>
-    </form>
+            <form id="predictionForm" class="space-y-6">
+                <div class="group">
+                    <label class="block text-lg font-medium mb-2">Upload CSV File</label>
+                    <div class="relative cursor-pointer">
+                        <input type="file" id="csvFileInput" accept=".csv"
+                            class="opacity-0 absolute inset-0 w-full h-full cursor-pointer">
+                        <div
+                            class="p-4 border-2 border-dashed border-gray-500 rounded-xl group-hover:border-purple-400 transition-colors">
+                            <div class="text-center space-y-2">
+                                <i class="fas fa-cloud-upload-alt text-3xl text-purple-400"></i>
+                                <p class="text-gray-300">Drag & drop or click to upload</p>
+                                <p class="text-sm text-gray-400">Supports CSV files only</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
-    <div id="predictionResult"></div>
-    <div id="graphContainer"></div>
+                <div class="relative">
+                    <label class="block text-lg font-medium mb-2">Or Enter Text Directly</label>
+                    <textarea id="textInput" rows="4"
+                        class="w-full bg-gray-800/50 rounded-lg p-4 border-2 border-gray-600 focus:border-purple-400 focus:ring-2 focus:ring-purple-500 input-glow transition-all text-black"
+                        placeholder="Type your text here..."></textarea>
+                </div>
+
+                <button type="button" onclick="predict()"
+                    class="w-full py-4 bg-purple-600 hover:bg-purple-700 text-xl font-bold rounded-lg transition-all transform hover:scale-105 active:scale-95">
+                    🔮 Predict Sentiment
+                </button>
+            </form>
+
+            <div class="mt-8">
+                <h3 class="text-2xl font-bold mb-4 text-purple-400">Prediction Result</h3>
+                <div id="predictionResult"
+                    class="text-3xl font-bold min-h-32 flex items-center justify-center glass-card p-6">
+                    ⏳ Waiting for input...
+                </div>
+            </div>
+
+            <div class="mt-8">
+                <h3 class="text-2xl font-bold mb-4 text-blue-400">Graph Result</h3>
+                <div id="graphContainer"
+                    class="aspect-video bg-gray-800/50 rounded-xl flex items-center justify-center glass-card p-6">
+                    <p class="text-gray-400">Graph will appear here</p>
+                </div>
+            </div>
+
+            <button id="downloadBtn" style="display:none" onclick="downloadPredictions()"
+                class="w-full mt-8 py-4 bg-green-600 hover:bg-green-700 text-xl font-bold rounded-lg transition-all transform hover:scale-105">
+                <i class="fas fa-download mr-3"></i>
+                Download Predictions
+            </button>
+        </div>
+    </div>
 
     <script>
         function predict() {
-            // Check if CSV file is present
             var csvFileInput = document.getElementById("csvFileInput");
             var textInput = document.getElementById("textInput");
             var predictionResult = document.getElementById("predictionResult");
             var graphContainer = document.getElementById("graphContainer");
 
             if (csvFileInput.files.length > 0) {
-                // Upload CSV file
                 var formData = new FormData();
                 formData.append("file", csvFileInput.files[0]);
 
@@ -40,22 +114,15 @@
                 })
                     .then(response => {
                         if (response.headers.get('X-Graph-Exists') === 'true') {
-                            console.log("Graph")
                             var graphData = response.headers.get('X-Graph-Data');
                             displayGraph(graphData);
                         }
-
                         return response.blob();
                     })
                     .then(blob => {
-                        console.log("Blob:", blob);
-
                         document.getElementById("downloadBtn").style.display = "block";
                         document.getElementById("downloadBtn").onclick = function () {
-                            console.log("Downloading...");
                             var url = URL.createObjectURL(blob);
-                            console.log("URL:", url);
-
                             var a = document.createElement("a");
                             a.href = url;
                             a.download = "Predictions.csv";
@@ -69,7 +136,6 @@
                     });
 
             } else if (textInput.value.trim() !== "") {
-                // Predict on single sentence
                 fetch("http://localhost:5000/predict", {
                     method: "POST",
                     headers: {
@@ -79,24 +145,23 @@
                 })
                     .then(response => response.json())
                     .then(data => {
-                        console.log(data)
                         predictionResult.innerHTML = "Predicted sentiment: " + data.prediction;
                     });
             }
         }
 
         function downloadPredictions() {
-            console.log("Download prediction")
+            console.log("Download prediction");
         }
 
         function displayGraph(graphData) {
             var graphUrl = "data:image/png;base64," + graphData;
             var img = document.createElement('img');
             img.src = graphUrl;
+            graphContainer.innerHTML = "";
             graphContainer.appendChild(img);
         }
     </script>
-
 </body>
 
 </html>
