@@ -1,18 +1,26 @@
 from flask import Flask, request, jsonify, send_file, render_template
 import re
-from io import BytesIO
-
-# nltk.download('stopwords')
+from io import BytesIO, StringIO  # Import StringIO
+import nltk
+# nltk.download('stopwords')  # This is only needed once, not on every run.
 from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
 import matplotlib.pyplot as plt
 import pandas as pd
 import pickle
 import base64
+from flask_cors import CORS
+
 
 STOPWORDS = set(stopwords.words("english"))
 
 app = Flask(__name__)
+CORS(app)
+
+# Load the models and vectorizer *once* when the app starts.  VERY IMPORTANT.
+predictor = pickle.load(open(r"Models/model_xgb.pkl", "rb"))
+scaler = pickle.load(open(r"Models/scaler.pkl", "rb"))
+cv = pickle.load(open(r"Models/countVectorizer.pkl", "rb"))
 
 
 @app.route("/test", methods=["GET"])
@@ -27,66 +35,76 @@ def home():
 
 @app.route("/predict", methods=["POST"])
 def predict():
-    # Select the predictor to be loaded from Models folder
-    predictor = pickle.load(open(r"Models/model_xgb.pkl", "rb"))
-    scaler = pickle.load(open(r"Models/scaler.pkl", "rb"))
-    cv = pickle.load(open(r"Models/countVectorizer.pkl", "rb"))
     try:
-        # Check if the request contains a file (for bulk prediction) or text input
         if "file" in request.files:
-            # Bulk prediction from CSV file
             file = request.files["file"]
-            data = pd.read_csv(file)
-
-            predictions, graph = bulk_prediction(predictor, scaler, cv, data)
+            if file.filename == '':   # added the file name check
+                return jsonify({"error": "No selected file"})
+            data = pd.read_csv(file,  delimiter = '\t', quoting = 3) # added delimiter and quotechar
+            predictions, graph = bulk_prediction(data)
+            # Create a CSV in-memory buffer
+            csv_buffer = StringIO()
+            data.to_csv(csv_buffer, index=False)
+            csv_buffer.seek(0)
 
             response = send_file(
-                predictions,
+                BytesIO(csv_buffer.getvalue().encode()),
                 mimetype="text/csv",
                 as_attachment=True,
                 download_name="Predictions.csv",
             )
 
             response.headers["X-Graph-Exists"] = "true"
-
-            response.headers["X-Graph-Data"] = base64.b64encode(
-                graph.getbuffer()
-            ).decode("ascii")
-
+            response.headers["X-Graph-Data"] = base64.b64encode(graph.getvalue()).decode("ascii")
             return response
 
         elif "text" in request.json:
-            # Single string prediction
             text_input = request.json["text"]
-            predicted_sentiment = single_prediction(predictor, scaler, cv, text_input)
-
+            predicted_sentiment = single_prediction(text_input)
             return jsonify({"prediction": predicted_sentiment})
 
     except Exception as e:
+        print(f"Error in /predict: {e}")  # More detailed error logging
         return jsonify({"error": str(e)})
 
 
-def single_prediction(predictor, scaler, cv, text_input):
-    corpus = []
+def single_prediction(text_input):
+    # Use the PRE-TRAINED cv and scaler objects.
+    global predictor, scaler, cv  # Access the global variables
+
     stemmer = PorterStemmer()
     review = re.sub("[^a-zA-Z]", " ", text_input)
     review = review.lower().split()
     review = [stemmer.stem(word) for word in review if not word in STOPWORDS]
     review = " ".join(review)
-    corpus.append(review)
-    X_prediction = cv.transform(corpus).toarray()
+    
+    # Transform the SINGLE review using the loaded CountVectorizer.
+    X_prediction = cv.transform([review]).toarray()  # Pass review as a list
     X_prediction_scl = scaler.transform(X_prediction)
+    print("------ Debugging: single_prediction ------")
+    print("Original text_input:", text_input)
+    print("Processed review:", review)
+    print("CountVectorizer feature names (first 50):", cv.get_feature_names_out()[:50])  # Show first 50 features
+    print("Transformed X_prediction:", X_prediction)
+    print("Scaled X_prediction_scl:", X_prediction_scl)
+    print("------------------------------------------")
     y_predictions = predictor.predict_proba(X_prediction_scl)
+
+    print("Raw Prediction Probabilities:", y_predictions)  # Debugging Line
+
     y_predictions = y_predictions.argmax(axis=1)[0]
+    print("Final Prediction:", y_predictions)  # Debugging Line
 
     return "Positive" if y_predictions == 1 else "Negative"
 
 
-def bulk_prediction(predictor, scaler, cv, data):
+
+def bulk_prediction(data):
+    global predictor, scaler, cv  # Access the global variables
     corpus = []
     stemmer = PorterStemmer()
     for i in range(0, data.shape[0]):
-        review = re.sub("[^a-zA-Z]", " ", data.iloc[i]["Sentence"])
+        review = re.sub("[^a-zA-Z]", " ", data.iloc[i]["verified_reviews"])
         review = review.lower().split()
         review = [stemmer.stem(word) for word in review if not word in STOPWORDS]
         review = " ".join(review)
@@ -99,23 +117,23 @@ def bulk_prediction(predictor, scaler, cv, data):
     y_predictions = list(map(sentiment_mapping, y_predictions))
 
     data["Predicted sentiment"] = y_predictions
-    predictions_csv = BytesIO()
+    # predictions_csv = BytesIO()  # No longer needed here
 
-    data.to_csv(predictions_csv, index=False)
-    predictions_csv.seek(0)
+    # data.to_csv(predictions_csv, index=False) # No longer needed
+    # predictions_csv.seek(0)
 
     graph = get_distribution_graph(data)
 
-    return predictions_csv, graph
+    return  data, graph  # Return data directly
 
 
 def get_distribution_graph(data):
-    fig = plt.figure(figsize=(5, 5))
+   # Create Matplotlib plot
+    fig = plt.figure(figsize=(7, 7))  # set fig size
     colors = ("green", "red")
     wp = {"linewidth": 1, "edgecolor": "black"}
     tags = data["Predicted sentiment"].value_counts()
-    explode = (0.01, 0.01)
-
+    explode = (0.1, 0.1)
     tags.plot(
         kind="pie",
         autopct="%1.1f%%",
@@ -129,11 +147,15 @@ def get_distribution_graph(data):
         ylabel="",
     )
 
-    graph = BytesIO()
-    plt.savefig(graph, format="png")
-    plt.close()
 
-    return graph
+    # Convert plot to bytes
+    img_buffer = BytesIO()
+    plt.savefig(img_buffer, format='png')
+    plt.close(fig)  # Close the figure to free memory
+    img_buffer.seek(0)  # Rewind the buffer to the beginning
+
+    return img_buffer
+
 
 
 def sentiment_mapping(x):
